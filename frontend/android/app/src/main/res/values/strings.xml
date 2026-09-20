@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Thumbnail Studio</string>
+    <string name="title_activity_main">Thumbnail Studio</string>
+    <string name="package_name">com.physicswithdhanya.thumbnailstudio</string>
+    <string name="custom_url_scheme">com.physicswithdhanya.thumbnailstudio</string>
+</resources>
