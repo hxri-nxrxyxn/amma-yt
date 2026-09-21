@@ -16,6 +16,10 @@ STATIC_DIR = BASE_DIR / "static"
 FONTS_DIR = STATIC_DIR / "fonts"
 SAMPLES_DIR = STATIC_DIR / "samples"
 
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+}
+
 app = FastAPI(title="PHYSICS With Dhanya - Thumbnail Studio")
 
 app.add_middleware(
@@ -53,7 +57,7 @@ async def get_youtube_info(url: str = Query(..., description="YouTube video URL 
     title = ""
     author = "PHYSICS With Dhanya"
     
-    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True, headers=DEFAULT_HEADERS) as client:
         try:
             oembed_resp = await client.get(oembed_url)
             if oembed_resp.status_code == 200:
@@ -124,7 +128,7 @@ async def proxy_thumbnail(id: str = Query(..., description="YouTube video ID")):
     sd_url = f"https://i.ytimg.com/vi/{video_id}/sddefault.jpg"
     hq_url = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
 
-    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, headers=DEFAULT_HEADERS) as client:
         for url in [maxres_url, sd_url, hq_url]:
             try:
                 resp = await client.get(url)

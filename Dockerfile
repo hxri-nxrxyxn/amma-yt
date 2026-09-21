@@ -20,15 +20,16 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Copy python configuration files
 COPY pyproject.toml uv.lock ./
+COPY README.md ./
+
+# Copy the source code
+COPY src/ ./src
 
 # Install python dependencies
 RUN uv sync --frozen --no-dev
 
 # Copy compiled Svelte assets from Stage 1 into the static directory
 COPY --from=frontend-builder /app/static ./static
-
-# Copy the rest of the python source code
-COPY src/ ./src
 
 # Expose port 8000
 EXPOSE 8000

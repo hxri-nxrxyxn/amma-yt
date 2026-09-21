@@ -154,18 +154,18 @@
     }
   }
 
-  function loadImage(src: string): Promise<HTMLImageElement> {
+  function loadImage(src: string): Promise<boolean> {
     return new Promise((resolve) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
       img.onload = () => {
         bgImage = img;
         renderCanvas();
-        resolve(img);
+        resolve(true);
       };
       img.onerror = () => {
         console.error("Failed to load image:", src);
-        resolve(img);
+        resolve(false);
       };
       img.src = src;
     });
@@ -180,8 +180,18 @@
       if (!res.ok) throw new Error("Video not found");
       const data = await res.json();
       
+      let loaded = false;
       if (data.thumbnail_url) {
-        await loadImage(data.thumbnail_url);
+        const fullProxyUrl = data.thumbnail_url.startsWith("http")
+          ? data.thumbnail_url
+          : `${API_BASE}${data.thumbnail_url}`;
+        loaded = await loadImage(fullProxyUrl);
+      }
+
+      // Fallback: If proxy image failed to load or was unreachable, fallback to direct YouTube CDN
+      if (!loaded && data.raw_thumbnail_url) {
+        console.log("Proxy image failed or unavailable, loading direct YouTube CDN:", data.raw_thumbnail_url);
+        loaded = await loadImage(data.raw_thumbnail_url);
       }
 
       if (data.detected_class === "+2") {
