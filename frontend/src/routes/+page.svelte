@@ -22,6 +22,8 @@
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import ChevronLeft from "@lucide/svelte/icons/chevron-left";
+  import { Filesystem, Directory } from "@capacitor/filesystem";
+  import { Share } from "@capacitor/share";
 
   const CANVAS_WIDTH = 1280;
   const CANVAS_HEIGHT = 720;
@@ -833,15 +835,51 @@
     simThumbUrl = canvasEl.toDataURL("image/jpeg", 0.70);
   }
 
-  function downloadThumbnail() {
+  async function downloadThumbnail() {
     if (!canvasEl) return;
     renderCanvas();
-    const link = document.createElement("a");
     const safeCh = `CH${selectedChapterNum}`;
-    link.download = `Dhanya_${selectedClass.replace("+", "Plus")}_${safeCh}_${Date.now()}.jpg`;
-    link.href = canvasEl.toDataURL("image/jpeg", 0.95);
-    link.click();
-    triggerToast("Downloaded 1280 × 720 HD Thumbnail! 🎉");
+    const filename = `Dhanya_${selectedClass.replace("+", "Plus")}_${safeCh}_${Date.now()}.jpg`;
+    const dataUrl = canvasEl.toDataURL("image/jpeg", 0.95);
+
+    const isNative = typeof window !== "undefined" && (
+      (window as any).Capacitor || 
+      window.location.protocol.startsWith("capacitor") || 
+      window.location.protocol === "file:"
+    );
+
+    if (isNative) {
+      triggerToast("Preparing download... ⏳");
+      try {
+        const base64Data = dataUrl.substring(dataUrl.indexOf(",") + 1);
+
+        // Save to Cache directory first so we have a local URI to share
+        const writeResult = await Filesystem.writeFile({
+          path: filename,
+          data: base64Data,
+          directory: Directory.Cache
+        });
+
+        // Trigger native Android Share panel (which supports Save to Downloads/Files, WhatsApp, etc.)
+        await Share.share({
+          title: "Save or Share Thumbnail",
+          text: "Generated physics class thumbnail",
+          url: writeResult.uri,
+          dialogTitle: "Save or Share Thumbnail"
+        });
+        
+        triggerToast("Save/Share panel opened! 🎉");
+      } catch (err) {
+        console.error("Error saving/sharing native file:", err);
+        triggerToast("Failed to save natively.");
+      }
+    } else {
+      const link = document.createElement("a");
+      link.download = filename;
+      link.href = dataUrl;
+      link.click();
+      triggerToast("Downloaded 1280 × 720 HD Thumbnail! 🎉");
+    }
   }
 
   function copyToClipboard() {
