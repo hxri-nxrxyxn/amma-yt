@@ -12,3 +12,8 @@ wheels/
 # Svelte compiled files in root static
 static/index.html
 static/_app/
+
+# Environment files
+.env
+.env.*
+*.env

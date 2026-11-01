@@ -1,14 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Button } from "$lib/components/ui/button";
-  import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "$lib/components/ui/card";
+  import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "$lib/components/ui/card";
   import { Input } from "$lib/components/ui/input";
   import { Badge } from "$lib/components/ui/badge";
   import { Label } from "$lib/components/ui/label";
   import { Separator } from "$lib/components/ui/separator";
   import { Switch } from "$lib/components/ui/switch";
   import { Slider } from "$lib/components/ui/slider";
-  import { Select, SelectContent, SelectGroup, SelectGroupHeading, SelectItem, SelectTrigger, SelectValue } from "$lib/components/ui/select";
 
   import Download from "@lucide/svelte/icons/download";
   import Copy from "@lucide/svelte/icons/copy";
@@ -20,16 +19,17 @@
   import Type from "@lucide/svelte/icons/type";
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import Sparkles from "@lucide/svelte/icons/sparkles";
-  import ChevronRight from "@lucide/svelte/icons/chevron-right";
-  import ChevronLeft from "@lucide/svelte/icons/chevron-left";
+  import Key from "@lucide/svelte/icons/key";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import ChevronUp from "@lucide/svelte/icons/chevron-up";
+  import Layers from "@lucide/svelte/icons/layers";
+  import Palette from "@lucide/svelte/icons/palette";
   import { Filesystem, Directory } from "@capacitor/filesystem";
   import { Share } from "@capacitor/share";
 
   const CANVAS_WIDTH = 1280;
   const CANVAS_HEIGHT = 720;
 
-  // Navigation State
-  let activePage = $state<"input" | "preview">("input");
   const API_BASE = typeof window !== "undefined" && ((window as any).Capacitor || window.location.protocol.startsWith("capacitor") || window.location.protocol === "file:") ? "http://100.117.215.112:8000" : "";
 
   // Complete Kerala SCERT / NCERT Syllabus Database
@@ -75,41 +75,49 @@
     { num: 14, title: "SEMICONDUCTOR ELECTRONICS", sub: "PN Junction & Rectifiers", malayalam: "അർദ്ധചാലക ഇലക്ട്രോണിക്സ്", derivations: ["Half-Wave & Full-Wave Rectifier Circuits", "Energy Bands & V-I Characteristics"] }
   ];
 
-  // App Reactive State
+  // App Reactive State (ALL TEXTS ARE FREE TEXT INPUTS)
   let ytUrl = $state("");
   let ytStatus = $state("");
   let isFetching = $state(false);
+  let showApiKeyInput = $state(false);
+  let geminiApiKey = $state(typeof window !== "undefined" ? localStorage.getItem("dhanya_gemini_key") || "" : "");
 
-  // Background Image starts empty (no pre-existing preview image)
-  let bgImage: HTMLImageElement | null = $state(null);
-  let bgDarknessPercent = $state(40);
-  let bgDarkness = $derived(bgDarknessPercent / 100);
+  // Text Inputs
+  let selectedClass = $state("+1 PHYSICS");
+  let chapterBadge = $state("CH 05");
+  let selectedChapterNum = $state(5);
+  let mainTitle = $state("WORK, ENERGY & POWER");
+  let subtitle = $state("Work-Energy Theorem & Important Derivations");
+  let partNumber = $state("PART 1");
+  let tagBadge = $state("CORE DERIVATIONS");
+  let channelName = $state("PHYSICS With Dhanya");
+  let showChannel = $state(true);
 
-  // Typography & Design Presets
+  // Language & Title Cache
+  let isMalayalamTitle = $state(false);
+  let malayalamTitleCache = $state("പ്രവൃത്തി, ഊർജ്ജം, പവർ");
+  let englishTitleCache = $state("WORK, ENERGY & POWER");
+
+  // Typography & Sizing State (Supports Massive High-CTR Thumbnails!)
+  let titleSize = $state(96);       // Range: 50 to 165
+  let subtitleSize = $state(32);    // Range: 22 to 54
   let selectedFont = $state("inter");
   let layout = $state("editorial_left");
   let colorTheme = $state("mono_pure");
   let showWatermarkNum = $state(true);
 
-  let selectedClass = $state("+1");
-  let selectedChapterNum = $state(5);
-  let selectedChapterStr = $state("5");
-  let isMalayalamTitle = $state(false);
+  // Background Image & Contrast
+  let bgImage: HTMLImageElement | null = $state(null);
+  let bgDarknessPercent = $state(40);
+  let bgDarkness = $derived(bgDarknessPercent / 100);
 
-  let partNumber = $state("PART 1");
-  let tagBadge = $state("CORE DERIVATIONS");
-
-  let mainTitle = $state("WORK, ENERGY & POWER");
-  let subtitle = $state("Work-Energy Theorem & Important Derivations");
-  let channelName = $state("PHYSICS With Dhanya");
-  let showChannel = $state(true);
-
-  let titleSize = $state(76);
-
+  // UI Controls & Feed Simulation
   let toastMessage = $state("");
   let showToast = $state(false);
   let canvasEl: HTMLCanvasElement | null = $state(null);
   let simThumbUrl = $state("");
+  let showSeoSection = $state(false);
+  let showChapterPresets = $state(false);
 
   // AI SEO State
   let isGeneratingSeo = $state(false);
@@ -122,36 +130,52 @@
     captions_text: string;
   } | null>(null);
 
-  let currentChapterList = $derived(selectedClass === "+1" ? PLUS_ONE_CHAPTERS : PLUS_TWO_CHAPTERS);
-  let currentChapterObj = $derived(currentChapterList.find(c => c.num === selectedChapterNum) || currentChapterList[0]);
+  let currentSyllabusList = $derived(selectedClass.includes("+2") ? PLUS_TWO_CHAPTERS : PLUS_ONE_CHAPTERS);
+  let currentChapterObj = $derived(
+    currentSyllabusList.find(c => c.num === selectedChapterNum) || currentSyllabusList[0]
+  );
 
   function triggerToast(msg: string) {
     toastMessage = msg;
     showToast = true;
     setTimeout(() => {
       showToast = false;
-    }, 2400);
+    }, 2500);
   }
 
-  function applyChapter(ch: Chapter) {
-    selectedChapterNum = ch.num;
-    selectedChapterStr = String(ch.num);
-    if (isMalayalamTitle) {
-      mainTitle = ch.malayalam;
-    } else {
-      mainTitle = ch.title;
+  function saveApiKey(key: string) {
+    geminiApiKey = key.trim();
+    if (typeof window !== "undefined") {
+      if (geminiApiKey) {
+        localStorage.setItem("dhanya_gemini_key", geminiApiKey);
+        triggerToast("Saved Gemini API key!");
+      } else {
+        localStorage.removeItem("dhanya_gemini_key");
+        triggerToast("Removed Gemini API key");
+      }
     }
+  }
+
+  function selectChapterPreset(ch: Chapter) {
+    selectedChapterNum = ch.num;
+    chapterBadge = `CH ${ch.num < 10 ? '0' + ch.num : ch.num}`;
+    englishTitleCache = ch.title;
+    malayalamTitleCache = ch.malayalam;
+    mainTitle = isMalayalamTitle ? ch.malayalam : ch.title;
     subtitle = ch.derivations[0] || ch.sub;
-    triggerToast(`Loaded Chapter ${ch.num}: ${ch.title}`);
+    showChapterPresets = false;
+    triggerToast(`Loaded Ch ${ch.num}: ${ch.title}`);
   }
 
   function toggleLanguage() {
     isMalayalamTitle = !isMalayalamTitle;
     if (isMalayalamTitle) {
-      mainTitle = currentChapterObj.malayalam;
+      englishTitleCache = mainTitle;
+      mainTitle = malayalamTitleCache || currentChapterObj.malayalam || mainTitle;
       triggerToast("Switched to Malayalam (മലയാളം)");
     } else {
-      mainTitle = currentChapterObj.title;
+      malayalamTitleCache = mainTitle;
+      mainTitle = englishTitleCache || currentChapterObj.title || mainTitle;
       triggerToast("Switched to English");
     }
   }
@@ -176,9 +200,10 @@
   async function fetchYouTubeThumbnail() {
     if (!ytUrl.trim()) return;
     isFetching = true;
-    ytStatus = "Fetching video details...";
+    ytStatus = "Fetching & analyzing video details...";
     try {
-      const res = await fetch(`${API_BASE}/api/youtube-info?url=${encodeURIComponent(ytUrl)}`);
+      const keyParam = geminiApiKey.trim() ? `&api_key=${encodeURIComponent(geminiApiKey.trim())}` : "";
+      const res = await fetch(`${API_BASE}/api/youtube-info?url=${encodeURIComponent(ytUrl.trim())}${keyParam}`);
       if (!res.ok) throw new Error("Video not found");
       const data = await res.json();
       
@@ -190,40 +215,44 @@
         loaded = await loadImage(fullProxyUrl);
       }
 
-      // Fallback: If proxy image failed to load or was unreachable, fallback to direct YouTube CDN
+      // Fallback: If proxy image failed or was unreachable, fallback to direct YouTube CDN
       if (!loaded && data.raw_thumbnail_url) {
-        console.log("Proxy image failed or unavailable, loading direct YouTube CDN:", data.raw_thumbnail_url);
         loaded = await loadImage(data.raw_thumbnail_url);
       }
 
-      if (data.detected_class === "+2") {
-        selectedClass = "+2";
-      } else if (data.detected_class === "+1") {
-        selectedClass = "+1";
+      // Auto-prefill text fields directly!
+      if (data.detected_class) {
+        selectedClass = data.detected_class;
       }
-
+      if (data.detected_chapter) {
+        chapterBadge = data.detected_chapter;
+      }
       if (data.detected_chapter_num) {
         selectedChapterNum = data.detected_chapter_num;
-        selectedChapterStr = String(data.detected_chapter_num);
-        const list = selectedClass === "+1" ? PLUS_ONE_CHAPTERS : PLUS_TWO_CHAPTERS;
-        const found = list.find(c => c.num === data.detected_chapter_num);
-        if (found) {
-          applyChapter(found);
-        }
-      } else if (data.title) {
-        mainTitle = data.title;
       }
-
-      if (data.detected_part) {
+      if (data.detected_headline) {
+        mainTitle = data.detected_headline;
+        englishTitleCache = data.detected_headline;
+      }
+      if (data.detected_subtitle) {
+        subtitle = data.detected_subtitle;
+      }
+      if (data.detected_part !== undefined) {
         partNumber = data.detected_part;
       }
-
+      if (data.detected_tag) {
+        tagBadge = data.detected_tag;
+      }
+      if (data.detected_malayalam) {
+        malayalamTitleCache = data.detected_malayalam;
+      }
       if (data.author) {
         channelName = data.author;
       }
 
-      ytStatus = `Loaded: "${data.title}"`;
-      triggerToast("Video frame & chapter auto-loaded!");
+      isMalayalamTitle = false;
+      ytStatus = `Auto-filled from "${data.title}"`;
+      triggerToast(data.ai_enhanced ? "✨ Gemini auto-filled thumbnail inputs!" : "Auto-filled thumbnail inputs!");
       renderCanvas();
     } catch (e) {
       console.error(e);
@@ -236,6 +265,7 @@
 
   async function generateSeoKit() {
     isGeneratingSeo = true;
+    showSeoSection = true;
     triggerToast("Generating SEO kit with Gemini Flash...");
     try {
       const res = await fetch(`${API_BASE}/api/generate-seo`, {
@@ -245,10 +275,11 @@
           video_id: ytUrl || "c-M2jbSHhTg",
           class_name: selectedClass,
           chapter_num: selectedChapterNum,
-          chapter_title: currentChapterObj.title,
+          chapter_title: mainTitle,
           focus_topic: subtitle,
           part: partNumber,
-          malayalam_title: currentChapterObj.malayalam
+          malayalam_title: malayalamTitleCache || currentChapterObj.malayalam,
+          api_key: geminiApiKey.trim() || undefined
         })
       });
       const data = await res.json();
@@ -271,7 +302,7 @@
   }
 
   /* =========================================================
-     CANVAS ENGINE (PURE BORDERLESS TYPOGRAPHY)
+     CANVAS ENGINE (MASSIVE HIGH-CTR BORDERLESS TYPOGRAPHY)
      ========================================================= */
 
   function getFont(size: number, weight = 900, forceInter = false) {
@@ -292,11 +323,11 @@
       return {
         title: "#FFFFFF",
         sub: "#CBD5E1",
-        eyebrowBg: "rgba(15, 23, 42, 0.75)",
+        eyebrowBg: "rgba(15, 23, 42, 0.85)",
         eyebrowText: "#F8FAFC",
         accentPillBg: "#F1F5F9",
         accentPillText: "#0F172A",
-        cardBg: "rgba(15, 23, 42, 0.88)",
+        cardBg: "rgba(15, 23, 42, 0.90)",
         gradientEnd: "#080d1a"
       };
     }
@@ -304,23 +335,23 @@
       return {
         title: "#FDFBF7",
         sub: "#D6D3D1",
-        eyebrowBg: "rgba(24, 24, 27, 0.82)",
+        eyebrowBg: "rgba(24, 24, 27, 0.88)",
         eyebrowText: "#FAFAF9",
         accentPillBg: "#F5F5F4",
         accentPillText: "#1C1917",
-        cardBg: "rgba(24, 24, 27, 0.90)",
+        cardBg: "rgba(24, 24, 27, 0.92)",
         gradientEnd: "#141210"
       };
     }
     if (colorTheme === "subtle_amber") {
       return {
         title: "#FFFFFF",
-        sub: "#E4E4E7",
-        eyebrowBg: "rgba(0, 0, 0, 0.75)",
+        sub: "#FDE68A",
+        eyebrowBg: "rgba(0, 0, 0, 0.82)",
         eyebrowText: "#FFFFFF",
         accentPillBg: "#F59E0B",
         accentPillText: "#000000",
-        cardBg: "rgba(9, 9, 11, 0.88)",
+        cardBg: "rgba(9, 9, 11, 0.90)",
         gradientEnd: "#09090b"
       };
     }
@@ -328,11 +359,11 @@
     return {
       title: "#FFFFFF",
       sub: "#E4E4E7",
-      eyebrowBg: "rgba(0, 0, 0, 0.70)",
+      eyebrowBg: "rgba(0, 0, 0, 0.80)",
       eyebrowText: "#FFFFFF",
       accentPillBg: "#FFFFFF",
       accentPillText: "#09090B",
-      cardBg: "rgba(9, 9, 11, 0.86)",
+      cardBg: "rgba(9, 9, 11, 0.88)",
       gradientEnd: "#09090b"
     };
   }
@@ -374,14 +405,14 @@
 
   function drawEyebrowBadge(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, bg: string, textColor: string) {
     ctx.save();
-    const fontSize = 19;
+    const fontSize = 21;
     ctx.font = `800 ${fontSize}px "Inter", sans-serif`;
     const metrics = ctx.measureText(text);
-    const padX = 14;
-    const padY = 7;
+    const padX = 16;
+    const padY = 8;
     const w = metrics.width + (padX * 2);
     const h = fontSize + (padY * 2);
-    const radius = 6;
+    const radius = 7;
     const topY = y - (h / 2);
 
     ctx.fillStyle = bg;
@@ -398,18 +429,18 @@
 
   function drawInvertedPill(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, bg: string, textColor: string) {
     ctx.save();
-    const fontSize = 19;
+    const fontSize = 21;
     ctx.font = `900 ${fontSize}px "Inter", sans-serif`;
     const metrics = ctx.measureText(text);
-    const padX = 14;
-    const padY = 7;
+    const padX = 16;
+    const padY = 8;
     const w = metrics.width + (padX * 2);
     const h = fontSize + (padY * 2);
-    const radius = 6;
+    const radius = 7;
     const topY = y - (h / 2);
 
     ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
-    ctx.shadowBlur = 6;
+    ctx.shadowBlur = 8;
     ctx.shadowOffsetY = 2;
 
     ctx.fillStyle = bg;
@@ -428,10 +459,13 @@
 
   function renderWatermarkNumeral(ctx: CanvasRenderingContext2D, posX: number, posY: number) {
     if (!showWatermarkNum) return;
-    const numStr = selectedChapterNum < 10 ? `0${selectedChapterNum}` : `${selectedChapterNum}`;
+    const match = (chapterBadge || "").match(/\d+/);
+    const numVal = match ? parseInt(match[0], 10) : selectedChapterNum;
+    if (!numVal) return;
+    const numStr = numVal < 10 ? `0${numVal}` : `${numVal}`;
     ctx.save();
-    ctx.font = `900 320px "Inter", "Bebas Neue", sans-serif`;
-    ctx.fillStyle = "rgba(255, 255, 255, 0.07)";
+    ctx.font = `900 340px "Inter", "Bebas Neue", sans-serif`;
+    ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(numStr, posX, posY);
@@ -450,14 +484,14 @@
     const posX = CANVAS_WIDTH - totalW - 36;
     const posY = CANVAS_HEIGHT - totalH - 28;
 
-    ctx.fillStyle = "rgba(9, 9, 11, 0.75)";
+    ctx.fillStyle = "rgba(9, 9, 11, 0.85)";
     roundRect(ctx, posX, posY, totalW, totalH, 8);
     ctx.fill();
 
     const iconCenterX = posX + 18;
     const iconCenterY = posY + totalH / 2;
     
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.90)";
     ctx.lineWidth = 1.5;
     ctx.fillStyle = "#FFFFFF";
     ctx.beginPath();
@@ -485,48 +519,53 @@
   function renderEditorialLeft(ctx: CanvasRenderingContext2D) {
     const colors = getThemeColors();
 
-    const panelGrad = ctx.createLinearGradient(0, 0, 920, 0);
+    const panelGrad = ctx.createLinearGradient(0, 0, 960, 0);
     panelGrad.addColorStop(0, colors.gradientEnd);
-    panelGrad.addColorStop(0.55, colors.gradientEnd);
+    panelGrad.addColorStop(0.60, colors.gradientEnd);
     panelGrad.addColorStop(0.85, "rgba(9, 9, 11, 0.45)");
     panelGrad.addColorStop(1, "rgba(9, 9, 11, 0)");
     ctx.fillStyle = panelGrad;
-    ctx.fillRect(0, 0, 960, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, 980, CANVAS_HEIGHT);
 
     renderWatermarkNumeral(ctx, 420, 360);
 
     const startX = 72;
-    const badgeY = 130;
+    const badgeY = titleSize > 115 ? 95 : 120;
     let badgeX = startX;
 
-    const numPadded = selectedChapterNum < 10 ? `0${selectedChapterNum}` : `${selectedChapterNum}`;
-    const eyebrowText = `${selectedClass} PHYSICS • CHAPTER ${numPadded}`;
-
-    badgeX = drawEyebrowBadge(ctx, badgeX, badgeY, eyebrowText, colors.eyebrowBg, colors.eyebrowText);
-    badgeX += 12;
-
-    if (partNumber) {
-      badgeX = drawInvertedPill(ctx, badgeX, badgeY, partNumber, colors.accentPillBg, colors.accentPillText);
+    if (selectedClass && selectedClass.trim()) {
+      badgeX = drawInvertedPill(ctx, badgeX, badgeY, selectedClass.trim(), colors.accentPillBg, colors.accentPillText);
       badgeX += 12;
     }
 
-    if (tagBadge) {
-      drawEyebrowBadge(ctx, badgeX, badgeY, tagBadge, "rgba(255,255,255,0.12)", "#FFFFFF");
+    if (chapterBadge && chapterBadge.trim()) {
+      badgeX = drawEyebrowBadge(ctx, badgeX, badgeY, chapterBadge.trim(), colors.eyebrowBg, colors.eyebrowText);
+      badgeX += 12;
     }
 
-    const titleY = badgeY + 70;
+    if (partNumber && partNumber.trim()) {
+      badgeX = drawEyebrowBadge(ctx, badgeX, badgeY, partNumber.trim(), "rgba(255,255,255,0.18)", "#FFFFFF");
+      badgeX += 12;
+    }
+
+    if (tagBadge && tagBadge.trim()) {
+      drawEyebrowBadge(ctx, badgeX, badgeY, tagBadge.trim(), "rgba(255,255,255,0.12)", "#FFFFFF");
+    }
+
+    const titleY = badgeY + 60;
     const fontStr = getFont(titleSize, 900);
-    const lines = wrapText(ctx, mainTitle, 680, fontStr);
+    const maxWidth = 760;
+    const lines = wrapText(ctx, mainTitle, maxWidth, fontStr);
 
     ctx.save();
     ctx.font = fontStr;
     ctx.textBaseline = "top";
     let currentY = titleY;
-    const lineHeight = selectedFont === "bebas" ? titleSize * 1.02 : titleSize * 1.10;
+    const lineHeight = selectedFont === "bebas" ? titleSize * 1.02 : titleSize * 1.08;
 
     lines.forEach((line) => {
-      ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
-      ctx.shadowBlur = 16;
+      ctx.shadowColor = "rgba(0, 0, 0, 0.98)";
+      ctx.shadowBlur = 18;
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 4;
       ctx.fillStyle = colors.title;
@@ -535,23 +574,23 @@
     });
     ctx.restore();
 
-    if (subtitle) {
+    if (subtitle && subtitle.trim()) {
       ctx.save();
-      const subSize = Math.max(26, Math.floor(titleSize * 0.40));
+      const subSize = subtitleSize || Math.max(26, Math.floor(titleSize * 0.36));
       ctx.font = getFont(subSize, 700, true);
       ctx.textBaseline = "top";
 
-      const subLines = wrapText(ctx, subtitle, 660, getFont(subSize, 700, true));
+      const subLines = wrapText(ctx, subtitle, maxWidth - 20, getFont(subSize, 700, true));
       let subY = currentY + 16;
 
       subLines.forEach((sLine) => {
-        ctx.shadowColor = "rgba(0, 0, 0, 0.90)";
-        ctx.shadowBlur = 10;
+        ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
+        ctx.shadowBlur = 12;
         ctx.shadowOffsetX = 0;
         ctx.shadowOffsetY = 2;
         ctx.fillStyle = colors.sub;
         ctx.fillText(sLine, startX, subY);
-        subY += subSize * 1.30;
+        subY += subSize * 1.25;
       });
       ctx.restore();
     }
@@ -559,7 +598,7 @@
 
   function renderHorizonBottom(ctx: CanvasRenderingContext2D) {
     const colors = getThemeColors();
-    const bannerHeight = 330;
+    const bannerHeight = titleSize > 115 ? 380 : 340;
     const bannerY = CANVAS_HEIGHT - bannerHeight;
 
     const grad = ctx.createLinearGradient(0, bannerY - 60, 0, CANVAS_HEIGHT);
@@ -573,22 +612,23 @@
     const badgeY = bannerY + 45;
     let badgeX = startX;
 
-    const numPadded = selectedChapterNum < 10 ? `0${selectedChapterNum}` : `${selectedChapterNum}`;
-    const eyebrowText = `${selectedClass} PHYSICS • CHAPTER ${numPadded}`;
-
-    badgeX = drawEyebrowBadge(ctx, badgeX, badgeY, eyebrowText, colors.eyebrowBg, colors.eyebrowText);
-    badgeX += 12;
-
-    if (partNumber) {
-      badgeX = drawInvertedPill(ctx, badgeX, badgeY, partNumber, colors.accentPillBg, colors.accentPillText);
+    if (selectedClass && selectedClass.trim()) {
+      badgeX = drawInvertedPill(ctx, badgeX, badgeY, selectedClass.trim(), colors.accentPillBg, colors.accentPillText);
       badgeX += 12;
     }
-
-    if (tagBadge) {
-      drawEyebrowBadge(ctx, badgeX, badgeY, tagBadge, "rgba(255,255,255,0.12)", "#FFFFFF");
+    if (chapterBadge && chapterBadge.trim()) {
+      badgeX = drawEyebrowBadge(ctx, badgeX, badgeY, chapterBadge.trim(), colors.eyebrowBg, colors.eyebrowText);
+      badgeX += 12;
+    }
+    if (partNumber && partNumber.trim()) {
+      badgeX = drawEyebrowBadge(ctx, badgeX, badgeY, partNumber.trim(), "rgba(255,255,255,0.18)", "#FFFFFF");
+      badgeX += 12;
+    }
+    if (tagBadge && tagBadge.trim()) {
+      drawEyebrowBadge(ctx, badgeX, badgeY, tagBadge.trim(), "rgba(255,255,255,0.12)", "#FFFFFF");
     }
 
-    const titleY = badgeY + 60;
+    const titleY = badgeY + 55;
     ctx.save();
     const fontStr = getFont(titleSize, 900);
     ctx.font = fontStr;
@@ -609,9 +649,9 @@
     });
     ctx.restore();
 
-    if (subtitle && curY < CANVAS_HEIGHT - 30) {
+    if (subtitle && curY < CANVAS_HEIGHT - 25) {
       ctx.save();
-      const subSize = Math.max(26, Math.floor(titleSize * 0.40));
+      const subSize = subtitleSize || Math.max(26, Math.floor(titleSize * 0.36));
       ctx.font = getFont(subSize, 700, true);
       ctx.shadowColor = "rgba(0, 0, 0, 0.90)";
       ctx.shadowBlur = 10;
@@ -626,9 +666,9 @@
   function renderFrostedCard(ctx: CanvasRenderingContext2D) {
     const colors = getThemeColors();
     const cardX = 54;
-    const cardY = 54;
-    const cardW = 760;
-    const cardH = CANVAS_HEIGHT - 108;
+    const cardY = 44;
+    const cardW = 790;
+    const cardH = CANVAS_HEIGHT - 88;
 
     ctx.save();
     ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
@@ -642,33 +682,34 @@
     renderWatermarkNumeral(ctx, cardX + cardW - 140, cardY + cardH / 2);
 
     const startX = cardX + 46;
-    const badgeY = cardY + 62;
+    const badgeY = cardY + 54;
     let badgeX = startX;
 
-    const numPadded = selectedChapterNum < 10 ? `0${selectedChapterNum}` : `${selectedChapterNum}`;
-    const eyebrowText = `${selectedClass} PHYSICS • CHAPTER ${numPadded}`;
-
-    badgeX = drawEyebrowBadge(ctx, badgeX, badgeY, eyebrowText, colors.eyebrowBg, colors.eyebrowText);
-    badgeX += 12;
-
-    if (partNumber) {
-      badgeX = drawInvertedPill(ctx, badgeX, badgeY, partNumber, colors.accentPillBg, colors.accentPillText);
+    if (selectedClass && selectedClass.trim()) {
+      badgeX = drawInvertedPill(ctx, badgeX, badgeY, selectedClass.trim(), colors.accentPillBg, colors.accentPillText);
       badgeX += 12;
     }
-
-    if (tagBadge) {
-      drawEyebrowBadge(ctx, badgeX, badgeY, tagBadge, "rgba(255,255,255,0.12)", "#FFFFFF");
+    if (chapterBadge && chapterBadge.trim()) {
+      badgeX = drawEyebrowBadge(ctx, badgeX, badgeY, chapterBadge.trim(), colors.eyebrowBg, colors.eyebrowText);
+      badgeX += 12;
+    }
+    if (partNumber && partNumber.trim()) {
+      badgeX = drawEyebrowBadge(ctx, badgeX, badgeY, partNumber.trim(), "rgba(255,255,255,0.18)", "#FFFFFF");
+      badgeX += 12;
+    }
+    if (tagBadge && tagBadge.trim()) {
+      drawEyebrowBadge(ctx, badgeX, badgeY, tagBadge.trim(), "rgba(255,255,255,0.12)", "#FFFFFF");
     }
 
-    const titleY = badgeY + 70;
+    const titleY = badgeY + 55;
     ctx.save();
     const fontStr = getFont(titleSize, 900);
     ctx.font = fontStr;
     ctx.textBaseline = "top";
     let curY = titleY;
-    const lineHeight = selectedFont === "bebas" ? titleSize * 1.02 : titleSize * 1.10;
+    const lineHeight = selectedFont === "bebas" ? titleSize * 1.02 : titleSize * 1.08;
 
-    const lines = wrapText(ctx, mainTitle, 660, fontStr);
+    const lines = wrapText(ctx, mainTitle, 690, fontStr);
     lines.forEach((line) => {
       ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
       ctx.shadowBlur = 14;
@@ -679,20 +720,20 @@
     });
     ctx.restore();
 
-    if (subtitle) {
+    if (subtitle && subtitle.trim()) {
       ctx.save();
-      const subSize = Math.max(26, Math.floor(titleSize * 0.40));
+      const subSize = subtitleSize || Math.max(26, Math.floor(titleSize * 0.36));
       ctx.font = getFont(subSize, 700, true);
       ctx.shadowColor = "rgba(0, 0, 0, 0.90)";
       ctx.shadowBlur = 10;
       ctx.shadowOffsetY = 2;
       ctx.fillStyle = colors.sub;
       ctx.textBaseline = "top";
-      const subLines = wrapText(ctx, subtitle, 660, getFont(subSize, 700, true));
-      let subY = curY + 16;
+      const subLines = wrapText(ctx, subtitle, 670, getFont(subSize, 700, true));
+      let subY = curY + 14;
       subLines.forEach((sLine) => {
         ctx.fillText(sLine, startX, subY);
-        subY += subSize * 1.30;
+        subY += subSize * 1.25;
       });
       ctx.restore();
     }
@@ -711,34 +752,34 @@
     renderWatermarkNumeral(ctx, 400, 360);
 
     const startX = 72;
-    const badgeY = 120;
+    const badgeY = titleSize > 115 ? 95 : 110;
     let badgeX = startX;
 
-    badgeX = drawInvertedPill(ctx, badgeX, badgeY, `${selectedClass} PHYSICS`, colors.accentPillBg, colors.accentPillText);
-    badgeX += 12;
-
-    const numPadded = selectedChapterNum < 10 ? `0${selectedChapterNum}` : `${selectedChapterNum}`;
-    badgeX = drawEyebrowBadge(ctx, badgeX, badgeY, `CH ${numPadded}`, colors.eyebrowBg, colors.eyebrowText);
-    badgeX += 12;
-
-    if (partNumber) {
-      badgeX = drawEyebrowBadge(ctx, badgeX, badgeY, partNumber, "rgba(255,255,255,0.15)", "#FFFFFF");
+    if (selectedClass && selectedClass.trim()) {
+      badgeX = drawInvertedPill(ctx, badgeX, badgeY, selectedClass.trim(), colors.accentPillBg, colors.accentPillText);
       badgeX += 12;
     }
-
-    if (tagBadge) {
-      drawEyebrowBadge(ctx, badgeX, badgeY, tagBadge, "rgba(255,255,255,0.10)", "#FFFFFF");
+    if (chapterBadge && chapterBadge.trim()) {
+      badgeX = drawEyebrowBadge(ctx, badgeX, badgeY, chapterBadge.trim(), colors.eyebrowBg, colors.eyebrowText);
+      badgeX += 12;
+    }
+    if (partNumber && partNumber.trim()) {
+      badgeX = drawEyebrowBadge(ctx, badgeX, badgeY, partNumber.trim(), "rgba(255,255,255,0.18)", "#FFFFFF");
+      badgeX += 12;
+    }
+    if (tagBadge && tagBadge.trim()) {
+      drawEyebrowBadge(ctx, badgeX, badgeY, tagBadge.trim(), "rgba(255,255,255,0.10)", "#FFFFFF");
     }
 
-    const titleY = badgeY + 65;
+    const titleY = badgeY + 55;
     ctx.save();
     const fontStr = getFont(titleSize, 900);
     ctx.font = fontStr;
     ctx.textBaseline = "top";
     let curY = titleY;
-    const lineHeight = selectedFont === "bebas" ? titleSize * 1.02 : titleSize * 1.10;
+    const lineHeight = selectedFont === "bebas" ? titleSize * 1.02 : titleSize * 1.08;
 
-    const lines = wrapText(ctx, mainTitle, 680, fontStr);
+    const lines = wrapText(ctx, mainTitle, 710, fontStr);
     lines.forEach((line) => {
       ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
       ctx.shadowBlur = 16;
@@ -749,20 +790,20 @@
     });
     ctx.restore();
 
-    if (subtitle) {
+    if (subtitle && subtitle.trim()) {
       ctx.save();
-      const subSize = Math.max(26, Math.floor(titleSize * 0.40));
+      const subSize = subtitleSize || Math.max(26, Math.floor(titleSize * 0.36));
       ctx.font = getFont(subSize, 700, true);
       ctx.shadowColor = "rgba(0, 0, 0, 0.90)";
       ctx.shadowBlur = 10;
       ctx.shadowOffsetY = 2;
       ctx.fillStyle = colors.sub;
       ctx.textBaseline = "top";
-      const subLines = wrapText(ctx, subtitle, 680, getFont(subSize, 700, true));
-      let subY = curY + 16;
+      const subLines = wrapText(ctx, subtitle, 690, getFont(subSize, 700, true));
+      let subY = curY + 14;
       subLines.forEach((sLine) => {
         ctx.fillText(sLine, startX, subY);
-        subY += subSize * 1.30;
+        subY += subSize * 1.25;
       });
       ctx.restore();
     }
@@ -831,15 +872,16 @@
       renderChannelPill(ctx);
     }
 
-    // 6. Mobile Preview Simulation
+    // 6. Mobile Preview Simulation URL
     simThumbUrl = canvasEl.toDataURL("image/jpeg", 0.70);
   }
 
   async function downloadThumbnail() {
     if (!canvasEl) return;
     renderCanvas();
-    const safeCh = `CH${selectedChapterNum}`;
-    const filename = `Dhanya_${selectedClass.replace("+", "Plus")}_${safeCh}_${Date.now()}.jpg`;
+    const safeCh = (chapterBadge || "CH").replace(/[^a-zA-Z0-9]/g, "");
+    const safeClass = (selectedClass || "Physics").replace("+", "Plus").replace(/[^a-zA-Z0-9]/g, "_");
+    const filename = `Dhanya_${safeClass}_${safeCh}_${Date.now()}.jpg`;
     const dataUrl = canvasEl.toDataURL("image/jpeg", 0.95);
 
     const isNative = typeof window !== "undefined" && (
@@ -853,14 +895,12 @@
       try {
         const base64Data = dataUrl.substring(dataUrl.indexOf(",") + 1);
 
-        // Save to Cache directory first so we have a local URI to share
         const writeResult = await Filesystem.writeFile({
           path: filename,
           data: base64Data,
           directory: Directory.Cache
         });
 
-        // Trigger native Android Share panel (which supports Save to Downloads/Files, WhatsApp, etc.)
         await Share.share({
           title: "Save or Share Thumbnail",
           text: "Generated physics class thumbnail",
@@ -901,7 +941,7 @@
 
   $effect(() => {
     const _c = selectedClass;
-    const _ch = selectedChapterNum;
+    const _ch = chapterBadge;
     const _p = partNumber;
     const _t = tagBadge;
     const _m = mainTitle;
@@ -914,8 +954,8 @@
     const _ct = colorTheme;
     const _wn = showWatermarkNum;
     const _ts = titleSize;
+    const _ss = subtitleSize;
     const _bg = bgImage;
-    const _pge = activePage;
 
     if (canvasEl) {
       renderCanvas();
@@ -939,606 +979,793 @@
   });
 </script>
 
-<div class="w-full max-w-full overflow-x-hidden pb-24">
+<div class="w-full max-w-full overflow-x-hidden pb-16">
   
   <!-- ========================================================
-       PAGE 1: DATA INPUT & STYLING (Streamlined with Dropdowns)
+       UNIFIED LIVE STUDIO WORKSPACE (Easy, Fast, Intuitive)
        ======================================================== -->
-  {#if activePage === "input"}
-    <main class="flex-1 w-full max-w-3xl mx-auto p-4 sm:p-6 space-y-6">
+  <main class="w-full max-w-7xl mx-auto p-3 sm:p-5 lg:p-6">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
       
-      <!-- Video URL Card (No photo upload, clean URL input) -->
-      <Card>
-        <CardHeader>
-          <div class="flex items-center justify-between">
-            <CardTitle class="text-base flex items-center gap-2">
-              <Video class="size-4" />
-              YouTube Video Link
-            </CardTitle>
-            <Badge variant="secondary">Auto-Detect</Badge>
+      <!-- ====================================================
+           RIGHT COLUMN ON LARGE / TOP ON MOBILE: LIVE PREVIEW
+           ==================================================== -->
+      <div class="lg:col-span-5 order-first lg:order-last space-y-4 lg:sticky lg:top-20 z-20">
+        
+        <!-- Live HD Canvas Card -->
+        <Card class="w-full overflow-hidden shadow-lg border-primary/20">
+          <CardHeader class="p-3 sm:p-4 pb-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="inline-block size-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <CardTitle class="text-sm font-semibold">Live 1280 × 720 Preview</CardTitle>
+              </div>
+              <Badge variant="outline" class="font-mono text-[11px]">{selectedClass}</Badge>
+            </div>
+          </CardHeader>
+          <CardContent class="p-0">
+            <div class="w-full aspect-video bg-black overflow-hidden relative group">
+              <canvas
+                bind:this={canvasEl}
+                width={CANVAS_WIDTH}
+                height={CANVAS_HEIGHT}
+                class="w-full h-full object-contain block"
+              ></canvas>
+            </div>
+          </CardContent>
+          <div class="p-3 bg-muted/30 border-t flex items-center gap-2">
+            <Button
+              size="lg"
+              class="flex-1 font-bold gap-2 shadow-sm"
+              onclick={downloadThumbnail}
+            >
+              <Download class="size-4" />
+              <span>Download HD</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="lg"
+              class="px-3"
+              onclick={copyToClipboard}
+              title="Copy to Clipboard"
+            >
+              <Copy class="size-4" />
+            </Button>
           </div>
-          <CardDescription>
-            Paste your YouTube video link to automatically grab the thumbnail and detect chapter details.
-          </CardDescription>
-        </CardHeader>
-        <CardContent class="space-y-4">
-          <div class="space-y-2">
-            <Label for="yt-input">Video URL</Label>
+        </Card>
+
+        <!-- YouTube Mobile Feed Real-world Preview -->
+        <Card class="bg-muted/15 border-dashed">
+          <CardHeader class="p-3 pb-1">
+            <CardTitle class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <Smartphone class="size-3.5" />
+              Phone Screen Readability Check
+            </CardTitle>
+          </CardHeader>
+          <CardContent class="p-3 pt-1">
+            <div class="flex gap-3 items-center">
+              <img
+                src={simThumbUrl}
+                alt="Mobile preview"
+                class="w-28 aspect-video object-cover rounded bg-black shrink-0 border shadow-sm"
+              />
+              <div class="min-w-0 flex-1">
+                <p class="text-xs font-semibold line-clamp-2 leading-snug">
+                  {selectedClass} | {mainTitle} {partNumber ? `| ${partNumber}` : ''}
+                </p>
+                <p class="text-[10px] text-muted-foreground mt-0.5 truncate">
+                  {channelName} • YouTube Mobile
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+      </div>
+
+      <!-- ====================================================
+           LEFT COLUMN: ALL TEXT INPUTS & CONTROLS (NO DROPDOWNS)
+           ==================================================== -->
+      <div class="lg:col-span-7 space-y-5">
+        
+        <!-- 1. YouTube Video Link & Prefill -->
+        <Card>
+          <CardHeader class="pb-3">
+            <div class="flex items-center justify-between">
+              <CardTitle class="text-base flex items-center gap-2">
+                <Video class="size-4 text-primary" />
+                YouTube Video Link
+              </CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="h-7 text-xs gap-1 text-muted-foreground"
+                onclick={() => showApiKeyInput = !showApiKeyInput}
+              >
+                <Key class="size-3.5" />
+                {geminiApiKey ? "AI Key Configured" : "Add Gemini Key"}
+              </Button>
+            </div>
+            <CardDescription class="text-xs">
+              Paste your video link to automatically grab the high-resolution frame and prefill all inputs.
+            </CardDescription>
+          </CardHeader>
+          <CardContent class="space-y-3">
+            
             <div class="flex gap-2">
               <Input
-                id="yt-input"
                 bind:value={ytUrl}
                 onkeydown={(e) => e.key === 'Enter' && fetchYouTubeThumbnail()}
-                placeholder="https://www.youtube.com/watch?v=..."
+                placeholder="Paste YouTube link: https://youtube.com/watch?v=..."
+                class="text-sm"
               />
-              <Button disabled={isFetching} onclick={fetchYouTubeThumbnail}>
+              <Button disabled={isFetching} onclick={fetchYouTubeThumbnail} class="shrink-0 font-medium">
                 {#if isFetching}
                   <RefreshCw class="size-4 animate-spin mr-1.5" />
                 {/if}
                 Fetch Video
               </Button>
             </div>
+
             {#if ytStatus}
-              <p class="text-xs text-muted-foreground">{ytStatus}</p>
-            {/if}
-          </div>
-
-          <!-- Quick Test Shortcut for Dhanya's Chapter 5 -->
-          <div class="pt-1">
-            <Button
-              variant="outline"
-              size="sm"
-              onclick={() => {
-                ytUrl = "https://www.youtube.com/watch?v=c-M2jbSHhTg";
-                fetchYouTubeThumbnail();
-              }}
-            >
-              Load Sample: +1 Physics Chapter 5 Video
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <!-- Kerala Syllabus & Chapter Details (Clean Dropdowns) -->
-      <Card>
-        <CardHeader>
-          <div class="flex items-center justify-between">
-            <CardTitle class="text-base flex items-center gap-2">
-              <BookOpen class="size-4" />
-              Kerala Syllabus & Chapter
-            </CardTitle>
-            <Button variant="outline" size="sm" onclick={toggleLanguage}>
-              {isMalayalamTitle ? "English" : "മലയാളം"}
-            </Button>
-          </div>
-          <CardDescription>
-            Select class and chapter from the Kerala Higher Secondary SCERT curriculum.
-          </CardDescription>
-        </CardHeader>
-        <CardContent class="space-y-4">
-          
-          <!-- Class Dropdown -->
-          <div class="space-y-2">
-            <Label>Higher Secondary Class</Label>
-            <Select
-              type="single"
-              value={selectedClass}
-              onValueChange={(val) => {
-                if (val === "+1" || val === "+2") {
-                  selectedClass = val;
-                  const list = val === "+1" ? PLUS_ONE_CHAPTERS : PLUS_TWO_CHAPTERS;
-                  const ch = list.find(c => c.num === selectedChapterNum) || list[0];
-                  applyChapter(ch);
-                }
-              }}
-            >
-              <SelectTrigger class="w-full">
-                <SelectValue placeholder="Select Class" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="+1" label="Plus One (+1 Physics)">Plus One (+1 Physics)</SelectItem>
-                <SelectItem value="+2" label="Plus Two (+2 Physics)">Plus Two (+2 Physics)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <!-- Chapter Dropdown -->
-          <div class="space-y-2">
-            <Label>Chapter</Label>
-            <Select
-              type="single"
-              bind:value={selectedChapterStr}
-              onValueChange={(val) => {
-                if (!val) return;
-                const ch = currentChapterList.find(c => c.num === parseInt(val, 10));
-                if (ch) applyChapter(ch);
-              }}
-            >
-              <SelectTrigger class="w-full">
-                <SelectValue placeholder="Select Chapter" />
-              </SelectTrigger>
-              <SelectContent class="max-h-72">
-                <SelectGroup>
-                  <SelectGroupHeading>{selectedClass === "+1" ? "+1 Physics" : "+2 Physics"}</SelectGroupHeading>
-                  {#each currentChapterList as ch (ch.num)}
-                    <SelectItem value={String(ch.num)} label={`Chapter ${ch.num}: ${ch.title}`}>
-                      Chapter {ch.num}: {ch.title}
-                    </SelectItem>
-                  {/each}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <!-- Important Derivations Dropdown -->
-          <div class="space-y-2">
-            <Label>Key Derivation / Sub-Topic</Label>
-            <Select
-              type="single"
-              value={subtitle}
-              onValueChange={(val) => {
-                if (val) subtitle = val;
-              }}
-            >
-              <SelectTrigger class="w-full">
-                <SelectValue placeholder="Select Derivation" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectGroupHeading>Derivations for Ch {selectedChapterNum}</SelectGroupHeading>
-                  {#each currentChapterObj.derivations as dev}
-                    <SelectItem value={dev} label={dev}>{dev}</SelectItem>
-                  {/each}
-                  <SelectItem value={currentChapterObj.sub} label={currentChapterObj.sub}>{currentChapterObj.sub}</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <!-- Video Part Dropdown -->
-          <div class="space-y-2">
-            <Label>Video Part / Episode</Label>
-            <Select
-              type="single"
-              bind:value={partNumber}
-            >
-              <SelectTrigger class="w-full">
-                <SelectValue placeholder="Select Part" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="" label="Full Video / One-Shot">Full Video / One-Shot</SelectItem>
-                <SelectItem value="PART 1" label="Part 1">Part 1</SelectItem>
-                <SelectItem value="PART 2" label="Part 2">Part 2</SelectItem>
-                <SelectItem value="PART 3" label="Part 3">Part 3</SelectItem>
-                <SelectItem value="PART 4" label="Part 4">Part 4</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <!-- Focus Tag Dropdown -->
-          <div class="space-y-2">
-            <Label>Exam Focus Tag</Label>
-            <Select
-              type="single"
-              bind:value={tagBadge}
-            >
-              <SelectTrigger class="w-full">
-                <SelectValue placeholder="Select Tag" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="" label="None">None</SelectItem>
-                <SelectItem value="CORE DERIVATIONS" label="Core Derivations">Core Derivations</SelectItem>
-                <SelectItem value="ONE SHOT REVISION" label="One Shot Revision">One Shot Revision</SelectItem>
-                <SelectItem value="EXAM ESSENTIALS" label="Exam Essentials">Exam Essentials</SelectItem>
-                <SelectItem value="PREVIOUS YEAR QUESTIONS" label="Previous Year Questions (PYQ)">Previous Year Questions (PYQ)</SelectItem>
-                <SelectItem value="CONCEPT & PROBLEMS" label="Concept & Problems">Concept & Problems</SelectItem>
-                <SelectItem value="FULL CHAPTER" label="Full Chapter">Full Chapter</SelectItem>
-                <SelectItem value="FORMULA REVISION" label="Formula Revision">Formula Revision</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <Separator />
-
-          <!-- Main Title & Subtitle Edit Inputs -->
-          <div class="space-y-2">
-            <Label for="main-title">Headline Text</Label>
-            <Input id="main-title" bind:value={mainTitle} />
-          </div>
-
-          <div class="space-y-2">
-            <Label for="sub-title">Subtitle Text</Label>
-            <Input id="sub-title" bind:value={subtitle} />
-          </div>
-
-        </CardContent>
-      </Card>
-
-      <!-- Thumbnail Style & Typography (Clean Dropdowns & Sliders) -->
-      <Card>
-        <CardHeader>
-          <CardTitle class="text-base flex items-center gap-2">
-            <SlidersHorizontal class="size-4" />
-            Thumbnail Style & Typography
-          </CardTitle>
-          <CardDescription>
-            Choose designer font, layout style, and contrast palette.
-          </CardDescription>
-        </CardHeader>
-        <CardContent class="space-y-4">
-          
-          <!-- Font Dropdown -->
-          <div class="space-y-2">
-            <Label>Designer Font Family</Label>
-            <Select
-              type="single"
-              bind:value={selectedFont}
-            >
-              <SelectTrigger class="w-full">
-                <SelectValue placeholder="Select Font" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="inter" label="Inter (Swiss Modern Sans)">Inter (Swiss Modern Sans)</SelectItem>
-                <SelectItem value="bebas" label="Bebas Neue (Bold Impact Display)">Bebas Neue (Bold Impact Display)</SelectItem>
-                <SelectItem value="jakarta" label="Plus Jakarta Sans (Modern Geometric)">Plus Jakarta Sans (Modern Geometric)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <!-- Layout Dropdown -->
-          <div class="space-y-2">
-            <Label>Layout Structure</Label>
-            <Select
-              type="single"
-              bind:value={layout}
-            >
-              <SelectTrigger class="w-full">
-                <SelectValue placeholder="Select Layout" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="editorial_left" label="Studio Left (Recommended - Keeps notes clear)">Studio Left (Recommended - Keeps notes clear)</SelectItem>
-                <SelectItem value="horizon_bottom" label="Cinematic Horizon (Lower Third)">Cinematic Horizon (Lower Third)</SelectItem>
-                <SelectItem value="frosted_card" label="Frosted Studio Card">Frosted Studio Card</SelectItem>
-                <SelectItem value="swiss_poster" label="Swiss Minimal Poster">Swiss Minimal Poster</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <!-- Contrast Palette Dropdown -->
-          <div class="space-y-2">
-            <Label>Contrast Palette</Label>
-            <Select
-              type="single"
-              bind:value={colorTheme}
-            >
-              <SelectTrigger class="w-full">
-                <SelectValue placeholder="Select Palette" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="mono_pure" label="Pure Monochrome (Black & White)">Pure Monochrome (Black & White)</SelectItem>
-                <SelectItem value="mono_slate" label="Studio Slate (Graphite & Crisp White)">Studio Slate (Graphite & Crisp White)</SelectItem>
-                <SelectItem value="warm_editorial" label="Warm Ivory (Academic Editorial)">Warm Ivory (Academic Editorial)</SelectItem>
-                <SelectItem value="subtle_amber" label="Amber Accent (Minimalist Warm)">Amber Accent (Minimalist Warm)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <!-- Toggles -->
-          <div class="flex items-center justify-between pt-1">
-            <div class="space-y-0.5">
-              <Label>Ghost Chapter Numeral ({selectedChapterNum})</Label>
-              <p class="text-xs text-muted-foreground">Translucent stylized chapter number</p>
-            </div>
-            <Switch bind:checked={showWatermarkNum} />
-          </div>
-
-          <div class="flex items-center justify-between">
-            <div class="space-y-0.5">
-              <Label>Channel Stamp</Label>
-              <p class="text-xs text-muted-foreground">Physics with Dhanya badge</p>
-            </div>
-            <Switch bind:checked={showChannel} />
-          </div>
-
-          <Separator />
-
-          <!-- Headline Size Slider -->
-          <div class="space-y-3">
-            <div class="flex items-center justify-between text-sm">
-              <Label>Headline Size</Label>
-              <span class="text-xs font-mono text-muted-foreground">{titleSize}px</span>
-            </div>
-            <Slider
-              type="single"
-              bind:value={titleSize}
-              min={56}
-              max={96}
-              step={2}
-            />
-          </div>
-
-          <!-- Dimmer Slider -->
-          <div class="space-y-3">
-            <div class="flex items-center justify-between text-sm">
-              <Label>Background Dimmer</Label>
-              <span class="text-xs font-mono text-muted-foreground">{bgDarknessPercent}%</span>
-            </div>
-            <Slider
-              type="single"
-              bind:value={bgDarknessPercent}
-              min={10}
-              max={80}
-              step={5}
-            />
-          </div>
-
-        </CardContent>
-      </Card>
-
-    </main>
-
-    <!-- Page 1 Sticky Bottom Bar: Go to Preview -->
-    <div class="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur px-4 py-3 w-full">
-      <div class="max-w-3xl mx-auto flex justify-end w-full">
-        <Button
-          size="lg"
-          class="w-full sm:w-auto font-semibold gap-2"
-          onclick={() => {
-            activePage = "preview";
-            setTimeout(renderCanvas, 60);
-            if (!seoData) {
-              generateSeoKit();
-            }
-          }}
-        >
-          <span>NEXT</span>
-          <ChevronRight class="size-4" />
-        </Button>
-      </div>
-    </div>
-  {/if}
-
-  <!-- ========================================================
-       PAGE 2: PREVIEW, DOWNLOAD & AI SEO KIT
-       ======================================================== -->
-  {#if activePage === "preview"}
-    <main class="flex-1 w-full max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
-      
-      <!-- Top Action Bar -->
-      <div class="flex flex-wrap items-center justify-between gap-3 w-full">
-        <Button
-          variant="outline"
-          size="sm"
-          onclick={() => activePage = "input"}
-          class="gap-1.5 shrink-0"
-        >
-          <ChevronLeft class="size-4" />
-          Back to Setup
-        </Button>
-      </div>
-
-      <!-- HD Canvas Preview Card -->
-      <Card class="w-full overflow-hidden">
-        <CardHeader class="pb-3">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <CardTitle class="text-base font-semibold">1280 × 720 HD Thumbnail</CardTitle>
-            <div class="flex items-center gap-1.5 flex-wrap">
-              <Badge variant="secondary">{selectedClass} Physics • Ch {selectedChapterNum}</Badge>
-              {#if partNumber}
-                <Badge variant="outline">{partNumber}</Badge>
-              {/if}
-            </div>
-          </div>
-          <CardDescription>
-            High resolution 1280×720 export ready to publish on YouTube.
-          </CardDescription>
-        </CardHeader>
-        <CardContent class="p-0">
-          <div class="w-full aspect-video bg-black overflow-hidden relative">
-            <canvas
-              bind:this={canvasEl}
-              width={CANVAS_WIDTH}
-              height={CANVAS_HEIGHT}
-              class="w-full h-full object-contain block"
-            ></canvas>
-          </div>
-        </CardContent>
-      </Card>
-
-      <!-- YouTube Mobile Feed Simulation Card -->
-      <Card>
-        <CardHeader class="pb-2">
-          <CardTitle class="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-            <Smartphone class="size-3.5" />
-            YouTube Mobile Feed Simulation
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div class="flex gap-3 items-center">
-            <img
-              src={simThumbUrl}
-              alt="Preview"
-              class="w-28 aspect-video object-cover rounded bg-black shrink-0 border"
-            />
-            <div class="min-w-0 flex-1">
-              <p class="text-sm font-medium line-clamp-2 leading-snug">
-                {selectedClass} PHYSICS | {mainTitle} {partNumber ? `| ${partNumber}` : ''}
+              <p class="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Check class="size-3 text-emerald-500" />
+                {ytStatus}
               </p>
-              <p class="text-xs text-muted-foreground mt-1 truncate">
-                {channelName} • 3.2K views
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <!-- AI SEO & Publishing Kit (Gemini Flash) -->
-      <Card>
-        <CardHeader>
-          <div class="flex items-center justify-between">
-            <CardTitle class="text-base flex items-center gap-2">
-              <Sparkles class="size-4 text-primary" />
-              AI SEO & Publishing Kit (Gemini Flash)
-            </CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isGeneratingSeo}
-              onclick={generateSeoKit}
-            >
-              {#if isGeneratingSeo}
-                <RefreshCw class="size-3.5 animate-spin mr-1.5" />
-                Generating
-              {:else}
-                <RefreshCw class="size-3.5 mr-1.5" />
-                Regenerate
-              {/if}
-            </Button>
-          </div>
-          <CardDescription>
-            Channel-consistent standardized title, Kerala SCERT SEO description, and high-CTR search tags.
-          </CardDescription>
-        </CardHeader>
-        <CardContent class="space-y-5">
-          
-          {#if isGeneratingSeo}
-            <div class="py-12 flex flex-col items-center justify-center text-center space-y-3">
-              <RefreshCw class="size-6 animate-spin text-primary" />
-              <p class="text-sm font-medium">Analyzing video & generating SEO kit...</p>
-              <p class="text-xs text-muted-foreground">Extracting YouTube Malayalam speech & structuring description</p>
-            </div>
-          {:else if seoData}
-            
-            <!-- Standardized Video Title -->
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <Label class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Channel-Standardized Video Title
-                </Label>
-                <Button variant="ghost" size="sm" class="h-7 text-xs" onclick={() => copyText(seoData!.title, "Title")}>
-                  <Copy class="size-3.5 mr-1" />
-                  Copy Title
-                </Button>
-              </div>
-              <div class="p-3 bg-muted/40 rounded-md border font-medium text-sm">
-                {seoData.title}
-              </div>
-            </div>
-
-            <!-- YouTube SEO Description -->
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <Label class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  SEO Description (Malayalam + English)
-                </Label>
-                <Button variant="ghost" size="sm" class="h-7 text-xs" onclick={() => copyText(seoData!.description, "Description")}>
-                  <Copy class="size-3.5 mr-1" />
-                  Copy Description
-                </Button>
-              </div>
-              <div class="p-3 bg-muted/40 rounded-md border text-xs whitespace-pre-wrap max-h-56 overflow-y-auto leading-relaxed font-sans">
-                {seoData.description}
-              </div>
-            </div>
-
-            <!-- YouTube Search Tags -->
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <Label class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  YouTube Search Tags
-                </Label>
-                <Button variant="ghost" size="sm" class="h-7 text-xs" onclick={() => copyText(seoData!.tags_string, "Tags")}>
-                  <Copy class="size-3.5 mr-1" />
-                  Copy All Tags
-                </Button>
-              </div>
-              <div class="p-2.5 bg-muted/40 rounded-md border flex flex-wrap gap-1.5">
-                {#each seoData.tags_string.split(", ") as tag}
-                  <Badge variant="secondary" class="text-xs font-normal">{tag}</Badge>
-                {/each}
-              </div>
-            </div>
-
-            <!-- Malayalam Key Takeaways -->
-            {#if seoData.malayalam_summary}
-              <div class="space-y-2">
-                <Label class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Malayalam Study Points (മലയാളം)
-                </Label>
-                <div class="p-3 bg-muted/40 rounded-md border text-xs leading-relaxed">
-                  {seoData.malayalam_summary}
-                </div>
-              </div>
             {/if}
 
-            <!-- Autogenerated Captions / Transcript -->
-            {#if seoData.has_captions}
-              <div class="p-3.5 bg-muted/20 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full">
-                <div class="space-y-1 min-w-0">
-                  <div class="flex items-center gap-2">
-                    <Badge variant="outline" class="text-[10px] px-1.5 py-0 font-medium">CC Subtitles</Badge>
-                    <span class="text-xs font-medium">Spoken Malayalam Audio</span>
-                  </div>
-                  <p class="text-[11px] text-muted-foreground">Autogenerated Malayalam speech audio transcript</p>
+            <!-- Collapsible Gemini API Key Input -->
+            {#if showApiKeyInput}
+              <div class="p-3 rounded-lg bg-muted/40 border space-y-2 mt-2">
+                <div class="flex items-center justify-between">
+                  <Label class="text-xs font-semibold flex items-center gap-1.5">
+                    <Key class="size-3 text-primary" />
+                    Gemini API Key (Optional)
+                  </Label>
+                  {#if geminiApiKey}
+                    <Badge variant="outline" class="text-[10px] text-emerald-500">Active</Badge>
+                  {/if}
                 </div>
-                <div class="flex items-center gap-2 shrink-0">
-                  <Button variant="outline" size="sm" class="h-8 text-xs flex-1 sm:flex-initial" onclick={() => copyText(seoData!.captions_text, "Captions")}>
-                    <Copy class="size-3.5 mr-1" />
-                    Copy
-                  </Button>
-                  <Button variant="secondary" size="sm" class="h-8 text-xs flex-1 sm:flex-initial" href={`${API_BASE}/api/download-captions?video_id=${ytUrl || "c-M2jbSHhTg"}`} target="_blank">
-                    <Download class="size-3.5 mr-1" />
-                    Download .txt
+                <div class="flex gap-2">
+                  <Input
+                    type="password"
+                    placeholder="AIzaSy..."
+                    value={geminiApiKey}
+                    onchange={(e) => saveApiKey((e.target as HTMLInputElement).value)}
+                    class="text-xs font-mono"
+                  />
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onclick={() => saveApiKey(geminiApiKey)}
+                    class="text-xs shrink-0"
+                  >
+                    Save
                   </Button>
                 </div>
+                <p class="text-[11px] text-muted-foreground">
+                  Saved securely in your browser to unlock Gemini Flash automated extraction.
+                </p>
               </div>
             {/if}
 
-          {:else}
-            <div class="py-8 text-center space-y-2">
-              <p class="text-sm text-muted-foreground">Click below to generate SEO description and tags.</p>
-              <Button onclick={generateSeoKit}>
-                <Sparkles class="size-4 mr-2" />
-                Generate AI SEO Kit
+            <!-- Quick Sample Video Button -->
+            <div class="flex items-center gap-2 pt-1">
+              <Button
+                variant="outline"
+                size="sm"
+                class="text-xs h-7"
+                onclick={() => {
+                  ytUrl = "https://www.youtube.com/watch?v=c-M2jbSHhTg";
+                  fetchYouTubeThumbnail();
+                }}
+              >
+                Load Sample: +1 Chapter 5 Video
               </Button>
             </div>
+
+          </CardContent>
+        </Card>
+
+        <!-- 2. Primary Thumbnail Texts (ALL FREE TEXT INPUTS) -->
+        <Card>
+          <CardHeader class="pb-3">
+            <div class="flex items-center justify-between">
+              <CardTitle class="text-base flex items-center gap-2">
+                <Type class="size-4 text-primary" />
+                Thumbnail Texts (Free Inputs)
+              </CardTitle>
+              <div class="flex items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="h-7 text-xs font-medium"
+                  onclick={toggleLanguage}
+                >
+                  {isMalayalamTitle ? "English" : "മലയാളം"}
+                </Button>
+              </div>
+            </div>
+            <CardDescription class="text-xs">
+              Every field is a plain text input. Edit or type anything you want.
+            </CardDescription>
+          </CardHeader>
+          <CardContent class="space-y-4">
+            
+            <!-- Category / Class Badge Input -->
+            <div class="space-y-1.5">
+              <Label class="text-xs font-semibold">Category / Class Badge</Label>
+              <Input
+                bind:value={selectedClass}
+                placeholder="e.g. +1 PHYSICS, +2 PHYSICS, NEET"
+                class="font-medium"
+              />
+              <div class="flex flex-wrap gap-1.5 pt-0.5">
+                <button
+                  type="button"
+                  class="text-[11px] px-2.5 py-0.5 rounded-full border bg-muted/40 hover:bg-muted transition font-medium"
+                  onclick={() => selectedClass = "+1 PHYSICS"}
+                >
+                  +1 PHYSICS
+                </button>
+                <button
+                  type="button"
+                  class="text-[11px] px-2.5 py-0.5 rounded-full border bg-muted/40 hover:bg-muted transition font-medium"
+                  onclick={() => selectedClass = "+2 PHYSICS"}
+                >
+                  +2 PHYSICS
+                </button>
+                <button
+                  type="button"
+                  class="text-[11px] px-2.5 py-0.5 rounded-full border bg-muted/40 hover:bg-muted transition font-medium"
+                  onclick={() => selectedClass = "NEET PHYSICS"}
+                >
+                  NEET PHYSICS
+                </button>
+                <button
+                  type="button"
+                  class="text-[11px] px-2.5 py-0.5 rounded-full border bg-muted/40 hover:bg-muted transition font-medium"
+                  onclick={() => selectedClass = "KEAM / ENTRANCE"}
+                >
+                  KEAM
+                </button>
+              </div>
+            </div>
+
+            <!-- Chapter Badge Input -->
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between">
+                <Label class="text-xs font-semibold">Chapter Tag / Label</Label>
+                <button
+                  type="button"
+                  class="text-xs text-primary hover:underline font-medium flex items-center gap-1"
+                  onclick={() => showChapterPresets = !showChapterPresets}
+                >
+                  <BookOpen class="size-3" />
+                  {showChapterPresets ? "Hide Syllabus Chapters" : "Quick Syllabus Chapters"}
+                  {#if showChapterPresets}
+                    <ChevronUp class="size-3" />
+                  {:else}
+                    <ChevronDown class="size-3" />
+                  {/if}
+                </button>
+              </div>
+              <Input
+                bind:value={chapterBadge}
+                placeholder="e.g. CH 05 or CHAPTER 5"
+                class="font-medium"
+              />
+
+              <!-- Collapsible Syllabus Quick Picker -->
+              {#if showChapterPresets}
+                <div class="p-2.5 rounded-lg border bg-muted/30 space-y-2 animate-in fade-in duration-150">
+                  <p class="text-[11px] font-medium text-muted-foreground">
+                    Click any chapter to prefill title & derivations (still 100% editable):
+                  </p>
+                  <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-48 overflow-y-auto p-1">
+                    {#each currentSyllabusList as ch (ch.num)}
+                      <button
+                        type="button"
+                        class="text-left text-xs p-1.5 rounded border bg-card hover:bg-accent transition truncate"
+                        onclick={() => selectChapterPreset(ch)}
+                      >
+                        <span class="font-bold text-primary mr-1">Ch {ch.num}:</span>
+                        <span>{ch.title}</span>
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+            </div>
+
+            <!-- Main Headline Text Input (Huge Thumbnail Headline) -->
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between">
+                <Label class="text-xs font-semibold">Main Headline Text (Big Impact)</Label>
+                <span class="text-[11px] text-muted-foreground">Keep to 3-5 punchy words</span>
+              </div>
+              <Input
+                bind:value={mainTitle}
+                placeholder="e.g. WORK, ENERGY & POWER"
+                class="font-bold text-base sm:text-lg"
+              />
+            </div>
+
+            <!-- Subtitle / Key Derivation Input -->
+            <div class="space-y-1.5">
+              <Label class="text-xs font-semibold">Subtitle / Topic / Derivation</Label>
+              <Input
+                bind:value={subtitle}
+                placeholder="e.g. Work-Energy Theorem & Important Derivations"
+              />
+              <!-- Derivation suggestion chips -->
+              {#if currentChapterObj && currentChapterObj.derivations}
+                <div class="flex flex-wrap gap-1.5 pt-0.5">
+                  {#each currentChapterObj.derivations as dev, idx (dev + idx)}
+                    <button
+                      type="button"
+                      class="text-[11px] px-2 py-0.5 rounded border bg-muted/40 hover:bg-muted transition truncate max-w-[280px]"
+                      onclick={() => subtitle = dev}
+                      title={dev}
+                    >
+                      {dev}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+
+            <!-- Video Part & Exam Tag in 2 Columns -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              
+              <!-- Video Part Input -->
+              <div class="space-y-1.5">
+                <Label class="text-xs font-semibold">Video Part</Label>
+                <Input
+                  bind:value={partNumber}
+                  placeholder="e.g. PART 1 (or leave empty)"
+                />
+                <div class="flex flex-wrap gap-1 pt-0.5">
+                  <button
+                    type="button"
+                    class="text-[10px] px-2 py-0.5 rounded border bg-muted/40 hover:bg-muted"
+                    onclick={() => partNumber = ""}
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    class="text-[10px] px-2 py-0.5 rounded border bg-muted/40 hover:bg-muted"
+                    onclick={() => partNumber = "PART 1"}
+                  >
+                    Part 1
+                  </button>
+                  <button
+                    type="button"
+                    class="text-[10px] px-2 py-0.5 rounded border bg-muted/40 hover:bg-muted"
+                    onclick={() => partNumber = "PART 2"}
+                  >
+                    Part 2
+                  </button>
+                  <button
+                    type="button"
+                    class="text-[10px] px-2 py-0.5 rounded border bg-muted/40 hover:bg-muted"
+                    onclick={() => partNumber = "PART 3"}
+                  >
+                    Part 3
+                  </button>
+                </div>
+              </div>
+
+              <!-- Exam Focus Tag Input -->
+              <div class="space-y-1.5">
+                <Label class="text-xs font-semibold">Exam Badge Tag</Label>
+                <Input
+                  bind:value={tagBadge}
+                  placeholder="e.g. CORE DERIVATIONS"
+                />
+                <div class="flex flex-wrap gap-1 pt-0.5">
+                  <button
+                    type="button"
+                    class="text-[10px] px-2 py-0.5 rounded border bg-muted/40 hover:bg-muted"
+                    onclick={() => tagBadge = ""}
+                  >
+                    None
+                  </button>
+                  <button
+                    type="button"
+                    class="text-[10px] px-2 py-0.5 rounded border bg-muted/40 hover:bg-muted"
+                    onclick={() => tagBadge = "CORE DERIVATIONS"}
+                  >
+                    Derivations
+                  </button>
+                  <button
+                    type="button"
+                    class="text-[10px] px-2 py-0.5 rounded border bg-muted/40 hover:bg-muted"
+                    onclick={() => tagBadge = "ONE SHOT REVISION"}
+                  >
+                    One Shot
+                  </button>
+                  <button
+                    type="button"
+                    class="text-[10px] px-2 py-0.5 rounded border bg-muted/40 hover:bg-muted"
+                    onclick={() => tagBadge = "EXAM ESSENTIALS"}
+                  >
+                    Essentials
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Channel Name Input -->
+            <div class="space-y-1.5 pt-1">
+              <Label class="text-xs font-semibold">Channel Badge Name</Label>
+              <Input
+                bind:value={channelName}
+                placeholder="PHYSICS With Dhanya"
+              />
+            </div>
+
+          </CardContent>
+        </Card>
+
+        <!-- 3. High-Impact Typography & Visual Styling -->
+        <Card>
+          <CardHeader class="pb-3">
+            <CardTitle class="text-base flex items-center gap-2">
+              <SlidersHorizontal class="size-4 text-primary" />
+              Thumbnail Size & Style Controls
+            </CardTitle>
+            <CardDescription class="text-xs">
+              Make text as big as you want so it punches out vividly on student smartphone feeds.
+            </CardDescription>
+          </CardHeader>
+          <CardContent class="space-y-4">
+            
+            <!-- Headline Font Size (Supports Up to 165px!) -->
+            <div class="space-y-2">
+              <div class="flex items-center justify-between text-xs">
+                <Label class="font-semibold">Headline Text Size (Impact Scale)</Label>
+                <span class="font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">{titleSize}px</span>
+              </div>
+              
+              <!-- Quick Preset Buttons -->
+              <div class="grid grid-cols-4 gap-1.5 pb-1">
+                <Button
+                  variant={titleSize === 76 ? "default" : "outline"}
+                  size="sm"
+                  class="h-7 text-xs"
+                  onclick={() => titleSize = 76}
+                >
+                  Normal (76px)
+                </Button>
+                <Button
+                  variant={titleSize === 96 ? "default" : "outline"}
+                  size="sm"
+                  class="h-7 text-xs"
+                  onclick={() => titleSize = 96}
+                >
+                  Bold (96px)
+                </Button>
+                <Button
+                  variant={titleSize === 120 ? "default" : "outline"}
+                  size="sm"
+                  class="h-7 text-xs"
+                  onclick={() => titleSize = 120}
+                >
+                  Huge (120px)
+                </Button>
+                <Button
+                  variant={titleSize === 145 ? "default" : "outline"}
+                  size="sm"
+                  class="h-7 text-xs"
+                  onclick={() => titleSize = 145}
+                >
+                  Mega (145px)
+                </Button>
+              </div>
+
+              <Slider
+                type="single"
+                bind:value={titleSize}
+                min={50}
+                max={165}
+                step={2}
+              />
+            </div>
+
+            <!-- Subtitle Font Size Slider -->
+            <div class="space-y-2">
+              <div class="flex items-center justify-between text-xs">
+                <Label class="font-semibold">Subtitle Text Size</Label>
+                <span class="font-mono font-medium text-muted-foreground">{subtitleSize}px</span>
+              </div>
+              <Slider
+                type="single"
+                bind:value={subtitleSize}
+                min={22}
+                max={54}
+                step={2}
+              />
+            </div>
+
+            <!-- Background Dimmer Slider -->
+            <div class="space-y-2">
+              <div class="flex items-center justify-between text-xs">
+                <Label class="font-semibold">Background Dimmer (Handwriting & Contrast)</Label>
+                <span class="font-mono font-medium text-muted-foreground">{bgDarknessPercent}%</span>
+              </div>
+              <Slider
+                type="single"
+                bind:value={bgDarknessPercent}
+                min={10}
+                max={80}
+                step={5}
+              />
+            </div>
+
+            <Separator />
+
+            <!-- Font Family Buttons -->
+            <div class="space-y-2">
+              <Label class="text-xs font-semibold">Designer Font Family</Label>
+              <div class="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  class="p-2.5 rounded-lg border text-left transition {selectedFont === 'inter' ? 'border-primary bg-primary/10' : 'bg-muted/30 hover:bg-muted'}"
+                  onclick={() => selectedFont = "inter"}
+                >
+                  <p class="font-bold text-xs">Inter</p>
+                  <p class="text-[10px] text-muted-foreground">Swiss Modern</p>
+                </button>
+                <button
+                  type="button"
+                  class="p-2.5 rounded-lg border text-left transition {selectedFont === 'bebas' ? 'border-primary bg-primary/10' : 'bg-muted/30 hover:bg-muted'}"
+                  onclick={() => selectedFont = "bebas"}
+                >
+                  <p class="font-bold text-xs uppercase tracking-wider">Bebas Neue</p>
+                  <p class="text-[10px] text-muted-foreground">Bold Display</p>
+                </button>
+                <button
+                  type="button"
+                  class="p-2.5 rounded-lg border text-left transition {selectedFont === 'jakarta' ? 'border-primary bg-primary/10' : 'bg-muted/30 hover:bg-muted'}"
+                  onclick={() => selectedFont = "jakarta"}
+                >
+                  <p class="font-bold text-xs">Plus Jakarta</p>
+                  <p class="text-[10px] text-muted-foreground">Clean Modern</p>
+                </button>
+              </div>
+            </div>
+
+            <!-- Layout Structure Selection -->
+            <div class="space-y-2">
+              <Label class="text-xs font-semibold">Thumbnail Layout</Label>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <button
+                  type="button"
+                  class="p-2 rounded-lg border text-left transition {layout === 'editorial_left' ? 'border-primary bg-primary/10' : 'bg-muted/30 hover:bg-muted'}"
+                  onclick={() => layout = "editorial_left"}
+                >
+                  <p class="font-semibold text-xs">Studio Left</p>
+                  <p class="text-[10px] text-muted-foreground">Recommended</p>
+                </button>
+                <button
+                  type="button"
+                  class="p-2 rounded-lg border text-left transition {layout === 'horizon_bottom' ? 'border-primary bg-primary/10' : 'bg-muted/30 hover:bg-muted'}"
+                  onclick={() => layout = "horizon_bottom"}
+                >
+                  <p class="font-semibold text-xs">Horizon</p>
+                  <p class="text-[10px] text-muted-foreground">Lower Third</p>
+                </button>
+                <button
+                  type="button"
+                  class="p-2 rounded-lg border text-left transition {layout === 'frosted_card' ? 'border-primary bg-primary/10' : 'bg-muted/30 hover:bg-muted'}"
+                  onclick={() => layout = "frosted_card"}
+                >
+                  <p class="font-semibold text-xs">Studio Card</p>
+                  <p class="text-[10px] text-muted-foreground">Frosted</p>
+                </button>
+                <button
+                  type="button"
+                  class="p-2 rounded-lg border text-left transition {layout === 'swiss_poster' ? 'border-primary bg-primary/10' : 'bg-muted/30 hover:bg-muted'}"
+                  onclick={() => layout = "swiss_poster"}
+                >
+                  <p class="font-semibold text-xs">Swiss Poster</p>
+                  <p class="text-[10px] text-muted-foreground">Minimalist</p>
+                </button>
+              </div>
+            </div>
+
+            <!-- Contrast Color Theme Selection -->
+            <div class="space-y-2">
+              <Label class="text-xs font-semibold">Contrast Palette</Label>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <button
+                  type="button"
+                  class="p-2 rounded-lg border text-left transition {colorTheme === 'mono_pure' ? 'border-primary bg-primary/10' : 'bg-muted/30 hover:bg-muted'}"
+                  onclick={() => colorTheme = "mono_pure"}
+                >
+                  <div class="size-3 rounded-full bg-white border mb-1"></div>
+                  <p class="font-semibold text-xs">Pure Mono</p>
+                </button>
+                <button
+                  type="button"
+                  class="p-2 rounded-lg border text-left transition {colorTheme === 'mono_slate' ? 'border-primary bg-primary/10' : 'bg-muted/30 hover:bg-muted'}"
+                  onclick={() => colorTheme = "mono_slate"}
+                >
+                  <div class="size-3 rounded-full bg-slate-300 border mb-1"></div>
+                  <p class="font-semibold text-xs">Studio Slate</p>
+                </button>
+                <button
+                  type="button"
+                  class="p-2 rounded-lg border text-left transition {colorTheme === 'warm_editorial' ? 'border-primary bg-primary/10' : 'bg-muted/30 hover:bg-muted'}"
+                  onclick={() => colorTheme = "warm_editorial"}
+                >
+                  <div class="size-3 rounded-full bg-stone-200 border mb-1"></div>
+                  <p class="font-semibold text-xs">Warm Ivory</p>
+                </button>
+                <button
+                  type="button"
+                  class="p-2 rounded-lg border text-left transition {colorTheme === 'subtle_amber' ? 'border-primary bg-primary/10' : 'bg-muted/30 hover:bg-muted'}"
+                  onclick={() => colorTheme = "subtle_amber"}
+                >
+                  <div class="size-3 rounded-full bg-amber-400 border mb-1"></div>
+                  <p class="font-semibold text-xs">Amber Accent</p>
+                </button>
+              </div>
+            </div>
+
+            <!-- Toggles -->
+            <div class="flex items-center justify-between pt-2">
+              <div class="space-y-0.5">
+                <Label class="text-xs font-medium">Ghost Chapter Numeral</Label>
+                <p class="text-[11px] text-muted-foreground">Stylized faint background numeral</p>
+              </div>
+              <Switch bind:checked={showWatermarkNum} />
+            </div>
+
+            <div class="flex items-center justify-between">
+              <div class="space-y-0.5">
+                <Label class="text-xs font-medium">Channel Name Stamp</Label>
+                <p class="text-[11px] text-muted-foreground">Physics with Dhanya bottom badge</p>
+              </div>
+              <Switch bind:checked={showChannel} />
+            </div>
+
+          </CardContent>
+        </Card>
+
+        <!-- 4. AI SEO & YouTube Publishing Kit (Expandable) -->
+        <Card>
+          <CardHeader class="pb-3">
+            <div class="flex items-center justify-between">
+              <CardTitle class="text-base flex items-center gap-2">
+                <Sparkles class="size-4 text-primary" />
+                AI SEO & Publishing Kit (Gemini Flash)
+              </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                class="h-7 text-xs"
+                disabled={isGeneratingSeo}
+                onclick={generateSeoKit}
+              >
+                {#if isGeneratingSeo}
+                  <RefreshCw class="size-3 animate-spin mr-1" />
+                  Generating...
+                {:else}
+                  <Sparkles class="size-3 mr-1" />
+                  {seoData ? "Regenerate" : "Generate SEO Kit"}
+                {/if}
+              </Button>
+            </div>
+            <CardDescription class="text-xs">
+              Channel-standardized titles, bilingual descriptions, and 15 high-CTR exam search tags.
+            </CardDescription>
+          </CardHeader>
+          
+          {#if showSeoSection}
+            <CardContent class="space-y-4 pt-1">
+              {#if isGeneratingSeo}
+                <div class="py-10 flex flex-col items-center justify-center text-center space-y-2">
+                  <RefreshCw class="size-6 animate-spin text-primary" />
+                  <p class="text-xs font-medium">Analyzing video with Gemini Flash...</p>
+                  <p class="text-[11px] text-muted-foreground">Extracting Kerala syllabus tags & structuring description</p>
+                </div>
+              {:else if seoData}
+                
+                <!-- Standardized Video Title -->
+                <div class="space-y-1.5">
+                  <div class="flex items-center justify-between">
+                    <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      Channel-Standardized Video Title
+                    </Label>
+                    <Button variant="ghost" size="sm" class="h-6 text-xs" onclick={() => copyText(seoData!.title, "Title")}>
+                      <Copy class="size-3 mr-1" />
+                      Copy Title
+                    </Button>
+                  </div>
+                  <div class="p-2.5 bg-muted/40 rounded-md border font-medium text-xs">
+                    {seoData.title}
+                  </div>
+                </div>
+
+                <!-- YouTube SEO Description -->
+                <div class="space-y-1.5">
+                  <div class="flex items-center justify-between">
+                    <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      SEO Description (Malayalam + English)
+                    </Label>
+                    <Button variant="ghost" size="sm" class="h-6 text-xs" onclick={() => copyText(seoData!.description, "Description")}>
+                      <Copy class="size-3 mr-1" />
+                      Copy Description
+                    </Button>
+                  </div>
+                  <div class="p-2.5 bg-muted/40 rounded-md border text-xs whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
+                    {seoData.description}
+                  </div>
+                </div>
+
+                <!-- YouTube Search Tags -->
+                <div class="space-y-1.5">
+                  <div class="flex items-center justify-between">
+                    <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      High-CTR YouTube Search Tags
+                    </Label>
+                    <Button variant="ghost" size="sm" class="h-6 text-xs" onclick={() => copyText(seoData!.tags_string, "Tags")}>
+                      <Copy class="size-3 mr-1" />
+                      Copy All Tags
+                    </Button>
+                  </div>
+                  <div class="p-2 bg-muted/40 rounded-md border flex flex-wrap gap-1">
+                    {#each seoData.tags_string.split(", ") as tag, idx (tag + idx)}
+                      <Badge variant="secondary" class="text-[11px] font-normal">{tag}</Badge>
+                    {/each}
+                  </div>
+                </div>
+
+                <!-- Malayalam Exam Points -->
+                {#if seoData.malayalam_summary}
+                  <div class="space-y-1.5">
+                    <Label class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      Malayalam Study Notes (മലയാളം)
+                    </Label>
+                    <div class="p-2.5 bg-muted/40 rounded-md border text-xs leading-relaxed">
+                      {seoData.malayalam_summary}
+                    </div>
+                  </div>
+                {/if}
+
+                <!-- Spoken Malayalam Captions / Transcript -->
+                {#if seoData.has_captions}
+                  <div class="p-3 bg-muted/20 rounded-lg border flex items-center justify-between gap-2">
+                    <div class="space-y-0.5">
+                      <p class="text-xs font-medium">Spoken Malayalam Audio Subtitles</p>
+                      <p class="text-[10px] text-muted-foreground">Auto-generated transcript available</p>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                      <Button variant="outline" size="sm" class="h-7 text-xs" onclick={() => copyText(seoData!.captions_text, "Captions")}>
+                        <Copy class="size-3 mr-1" />
+                        Copy
+                      </Button>
+                      <Button variant="secondary" size="sm" class="h-7 text-xs" href={`${API_BASE}/api/download-captions?video_id=${ytUrl || "c-M2jbSHhTg"}`} target="_blank">
+                        <Download class="size-3 mr-1" />
+                        .txt
+                      </Button>
+                    </div>
+                  </div>
+                {/if}
+
+              {/if}
+            </CardContent>
           {/if}
+        </Card>
 
-        </CardContent>
-      </Card>
-
-    </main>
-
-    <!-- Page 2 Sticky Bottom Bar -->
-    <div class="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur px-4 py-3 w-full">
-      <div class="max-w-5xl mx-auto flex items-center justify-between gap-3 w-full">
-        <Button
-          variant="outline"
-          size="lg"
-          onclick={() => activePage = "input"}
-          class="gap-1.5 shrink-0"
-        >
-          <ChevronLeft class="size-4" />
-          <span>Setup</span>
-        </Button>
-
-        <div class="flex items-center gap-2">
-          <Button variant="outline" size="lg" onclick={copyToClipboard} class="font-semibold gap-2">
-            <Copy class="size-4" />
-            <span>Copy Image</span>
-          </Button>
-          <Button
-            size="lg"
-            class="font-semibold gap-2"
-            onclick={downloadThumbnail}
-          >
-            <Download class="size-4" />
-            <span>Download HD (1280×720)</span>
-          </Button>
-        </div>
       </div>
+
     </div>
-  {/if}
+  </main>
 
   <!-- Toast Notification -->
   {#if showToast}
